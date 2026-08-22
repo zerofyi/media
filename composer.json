@@ -14,21 +14,21 @@
     ],
     "authors": [
         {
-            "name": "zerofyi",
+            "name": "Nahid Hassan",
             "homepage": "https://github.com/zerofyi"
         }
     ],
     "require": {
-        "php": "^8.2|^8.3|^8.4|^8.5",
-        "illuminate/contracts": "^10.0|^11.0|^12.0|^13.0",
-        "illuminate/support": "^10.0|^11.0|^12.0|^13.0",
-        "illuminate/database": "^10.0|^11.0|^12.0|^13.0",
-        "illuminate/filesystem": "^10.0|^11.0|^12.0|^13.0",
+        "php": "^8.2|^8.3|^8.4",
+        "illuminate/contracts": "^10.0|^11.0|^12.0",
+        "illuminate/support": "^10.0|^11.0|^12.0",
+        "illuminate/database": "^10.0|^11.0|^12.0",
+        "illuminate/filesystem": "^10.0|^11.0|^12.0",
         "intervention/image": "^4.2",
         "enshrined/svg-sanitize": "^0.22.0"
     },
     "require-dev": {
-        "orchestra/testbench": "^8.0|^9.0|^10.0|^11.0",
+        "orchestra/testbench": "^8.0|^9.0|^10.0",
         "phpunit/phpunit": "^10.0|^11.0|^12.0"
     },
     "autoload": {
@@ -45,9 +45,28 @@
         "laravel": {
             "providers": [
                 "Zerofyi\\Media\\MediaServiceProvider"
-            ]
+            ],
+            "aliases": {
+                "Media": "Zerofyi\\Media\\Facades\\Media"
+            }
         }
     },
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "test:unit": "vendor/bin/phpunit --testsuite Unit",
+        "test:feature": "vendor/bin/phpunit --testsuite Feature",
+        "test:coverage": "vendor/bin/phpunit --coverage-text"
+    },
+    "support": {
+        "issues": "https://github.com/zerofyi/media/issues",
+        "source": "https://github.com/zerofyi/media"
+    },
+    "funding": [
+        {
+            "type": "github",
+            "url": "https://github.com/sponsors/zerofyi"
+        }
+    ],
     "minimum-stability": "stable",
     "prefer-stable": true
 }

@@ -23,6 +23,9 @@ final class MediaServiceProvider extends ServiceProvider
             AssetService::class,
             fn ($app): AssetService => new AssetService($app->make(ImageStorageService::class))
         );
+
+        // Register the "Media" Facade alias so callers can use Media::store(…) etc.
+        $this->app->alias(AssetService::class, 'media');
     }
 
     public function boot(): void
@@ -37,8 +40,8 @@ final class MediaServiceProvider extends ServiceProvider
         ], ['media-config', 'media']);
 
         // ── Migration ─────────────────────────────────────────────────────────
-        // Only register the publication path when the migration does not yet exist,
-        // so repeated vendor:publish calls cannot create duplicate migration files.
+        // Only register when the migration does not yet exist, so repeated
+        // vendor:publish calls cannot create duplicate migration files.
         if (! $this->assetsTableMigrationExists()) {
             $this->publishes([
                 __DIR__ . '/../database/migrations/create_assets_table.php.stub' =>

@@ -11,9 +11,9 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\Drivers\Gd\Driver as GdDriver;
 use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
-use Intervention\Image\ImageManager;
 use Intervention\Image\Encoders\AutoEncoder;
 use Intervention\Image\Encoders\WebpEncoder;
+use Intervention\Image\ImageManager;
 use Throwable;
 use Zerofyi\Media\Exceptions\ImageStorageException;
 use Zerofyi\Media\ValueObjects\StoredImageResult;
@@ -38,6 +38,17 @@ final class ImageStorageService
         'sh', 'bash', 'exe', 'bat', 'cmd', 'com', 'msi', 'htaccess',
     ];
 
+    /**
+     * Characters that must never appear in a folder segment, even after decoding.
+     * Covers null-byte injection and URL-encoded traversal variants.
+     */
+    private const FORBIDDEN_FOLDER_PATTERNS = [
+        '..',        // classic traversal
+        "\0",        // null-byte injection
+        '%2e%2e',    // URL-encoded ..
+        '%252e',     // double-encoded .
+    ];
+
     // -------------------------------------------------------------------------
     // Dependencies
     // -------------------------------------------------------------------------
@@ -52,7 +63,7 @@ final class ImageStorageService
             ? new ImagickDriver()
             : new GdDriver();
 
-        $this->manager = new ImageManager($driver);
+        $this->manager      = new ImageManager($driver);
         $this->svgSanitizer = new SvgSanitizer();
     }
 
@@ -63,7 +74,15 @@ final class ImageStorageService
     /**
      * Validate, process, and persist an uploaded image to the configured disk.
      *
-     * @param  bool|array<string> $variants  false = none, true = defaults, array = named presets
+     * @param  bool|array<string> $variants   false = none, true = default_variants, array = named presets
+     * @param  bool               $convertToWebp    Re-encode JPEG/PNG/BMP to WebP (default: true)
+     * @param  bool               $preserveIfWebp   Copy native WebP without re-encoding (default: true)
+     * @param  bool               $keepOriginal     Store an untouched copy under Originals/ (default: false)
+     * @param  int|null           $quality          WebP quality 1–100; falls back to config default_quality
+     * @param  int|null           $maxSizeKb        Override the per-call size ceiling (KB)
+     * @param  string|null        $disk             Override the configured storage disk
+     * @param  array<string>|null $allowedTypes     Restrict accepted MIME types for this call
+     *
      * @throws ImageStorageException
      */
     public function upload(
@@ -92,21 +111,25 @@ final class ImageStorageService
         $mime         = (string) $file->getMimeType();
         $isSvg        = $mime === 'image/svg+xml';
 
-        // 1. Keep Raw Original
+        // 1. Keep raw original (before any processing)
         $originalPath = null;
         if ($keepOriginal) {
             $origExt      = $file->getClientOriginalExtension() ?: $this->mimeToExtension($file);
             $origFilename = $this->buildFilename($slug, $uuid, $origExt);
             $originalPath = $this->sanitizeFolder("Originals/{$folder}") . "/{$origFilename}";
-            Storage::disk($disk)->put($originalPath, (string) file_get_contents($file->getRealPath()));
+            $originalBytes = file_get_contents($file->getRealPath());
+            if ($originalBytes === false) {
+                throw ImageStorageException::invalidContent('Could not read uploaded file for original storage.');
+            }
+            Storage::disk($disk)->put($originalPath, $originalBytes);
         }
 
-        // 2. Handle SVG
+        // 2. Handle SVG separately (no pixel ops, just sanitize)
         if ($isSvg) {
             return $this->handleSvg($file, $slug, $folder, $uuid, $originalName, $disk, $originalPath);
         }
 
-        // 3. Process Master Raster Image
+        // 3. Process master raster image
         $finalExt = ($convertToWebp || ($preserveIfWebp && $mime === 'image/webp'))
             ? 'webp'
             : $this->mimeToExtension($file);
@@ -127,8 +150,12 @@ final class ImageStorageService
             $height = $image->height();
 
             if ($preserveIfWebp && $mime === 'image/webp') {
-                // Copy raw bytes - no re-encoding, no generational quality loss.
-                Storage::disk($disk)->put($path, (string) file_get_contents($file->getRealPath()));
+                // Copy raw bytes — no re-encoding, no generational quality loss.
+                $webpBytes = file_get_contents($file->getRealPath());
+                if ($webpBytes === false) {
+                    throw ImageStorageException::invalidContent('Could not read WebP file for storage.');
+                }
+                Storage::disk($disk)->put($path, $webpBytes);
             } elseif ($convertToWebp) {
                 Storage::disk($disk)->put($path, (string) $image->encode(new WebpEncoder(quality: $quality)));
             } else {
@@ -143,12 +170,12 @@ final class ImageStorageService
             throw ImageStorageException::storageFailed($path, $disk, $e);
         }
 
-        // 4. Generate Responsive Variants
+        // 4. Generate responsive variants
         $generatedVariants = $this->generateVariants(
-            file: $file,
-            filename: $filename,
-            folder: $folder,
-            disk: $disk,
+            file:             $file,
+            filename:         $filename,
+            folder:           $folder,
+            disk:             $disk,
             variantSelection: $variants,
         );
 
@@ -169,9 +196,12 @@ final class ImageStorageService
     }
 
     /**
-     * Cascade-delete the master file, ALL tracked variant files, and the raw original.
+     * Cascade-delete the master file, every tracked variant, and the raw original.
      *
-     * @param  array<string, string> $variants    Stored variant map from the Asset model (presetKey => path).
+     * Each file is attempted independently so one missing file never blocks the rest.
+     * Returns true only when every deletion succeeds.
+     *
+     * @param  array<string, string> $variants  Stored variant map from the Asset model (presetKey => path).
      */
     public function delete(
         string $path,
@@ -179,31 +209,53 @@ final class ImageStorageService
         array $variants = [],
         ?string $originalPath = null,
     ): bool {
-        $disk = $disk ?? (string) config('media.disk', 'public');
+        $disk    = $disk ?? (string) config('media.disk', 'public');
+        $success = true;
 
-        try {
-            // 1. Delete every variant using the ACTUAL stored paths (not config-derived guesses).
-            foreach ($variants as $variantPath) {
-                if ($variantPath) {
-                    Storage::disk($disk)->delete($variantPath);
-                }
+        // 1. Delete every variant using the ACTUAL stored paths (not config-derived guesses).
+        foreach ($variants as $variantPath) {
+            if (! $variantPath) {
+                continue;
             }
 
-            // 2. Delete raw original when it was kept.
-            if ($originalPath !== null) {
+            try {
+                Storage::disk($disk)->delete($variantPath);
+            } catch (Throwable $e) {
+                $success = false;
+                Log::warning('Zerofyi\\Media: Variant deletion failed', [
+                    'variant_path' => $variantPath,
+                    'error'        => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // 2. Delete the raw original when it was kept.
+        if ($originalPath !== null) {
+            try {
                 Storage::disk($disk)->delete($originalPath);
+            } catch (Throwable $e) {
+                $success = false;
+                Log::warning('Zerofyi\\Media: Original deletion failed', [
+                    'original_path' => $originalPath,
+                    'error'         => $e->getMessage(),
+                ]);
             }
+        }
 
-            // 3. Delete the master file last.
-            return Storage::disk($disk)->delete($path);
+        // 3. Delete the master file last.
+        try {
+            if (! Storage::disk($disk)->delete($path)) {
+                $success = false;
+            }
         } catch (Throwable $e) {
-            Log::warning('Zerofyi\\Media: Cascade deletion failed', [
+            $success = false;
+            Log::warning('Zerofyi\\Media: Master deletion failed', [
                 'path'  => $path,
                 'error' => $e->getMessage(),
             ]);
-
-            return false;
         }
+
+        return $success;
     }
 
     /**
@@ -236,7 +288,11 @@ final class ImageStorageService
     ): StoredImageResult {
         $filename = $this->buildFilename($slug, $uuid, 'svg');
         $path     = "{$folder}/{$filename}";
-        $raw      = (string) file_get_contents($file->getRealPath());
+        $raw      = file_get_contents($file->getRealPath());
+        if ($raw === false || $raw === '') {
+            $this->cleanupPaths([$originalPath], $disk);
+            throw ImageStorageException::invalidContent('Could not read SVG file content.');
+        }
         $cleanSvg = $this->svgSanitizer->sanitize($raw);
 
         if ($cleanSvg === false || $cleanSvg === '') {
@@ -264,7 +320,10 @@ final class ImageStorageService
 
     /**
      * Generate all requested responsive variants.
-     * Individual variant failures are logged and skipped – they never abort the upload.
+     * Individual variant failures are logged and skipped — they never abort the upload.
+     *
+     * The source image is decoded once and cloned per variant to avoid
+     * redundant disk reads and decode overhead.
      *
      * @param  bool|array<string>    $variantSelection
      * @return array<string, string>
@@ -276,30 +335,46 @@ final class ImageStorageService
         string $disk,
         bool|array $variantSelection,
     ): array {
-        $activeKeys    = $this->resolveActiveVariants($variantSelection);
+        $activeKeys     = $this->resolveActiveVariants($variantSelection);
         $presetVariants = (array) config('media.variants', []);
-        $generated     = [];
+        $generated      = [];
+
+        if (empty($activeKeys)) {
+            return [];
+        }
+
+        // Decode once — clone per variant to avoid redundant disk I/O.
+        try {
+            $sourceImage = method_exists($this->manager, 'decodePath')
+                ? $this->manager->decodePath($file->getRealPath())
+                : $this->manager->read($file->getRealPath());
+        } catch (Throwable $e) {
+            Log::warning('Zerofyi\\Media: Could not decode source image for variants', [
+                'file'  => $filename,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
 
         foreach ($activeKeys as $presetKey) {
             if (! isset($presetVariants[$presetKey])) {
                 continue;
             }
 
-            $preset         = $presetVariants[$presetKey];
-            $variantFolder  = $this->sanitizeFolder("Variants/{$folder}/{$presetKey}");
+            $preset          = $presetVariants[$presetKey];
+            $variantFolder   = $this->sanitizeFolder("Variants/{$folder}/{$presetKey}");
             $variantFilename = "{$presetKey}_{$filename}";
-            $variantPath    = "{$variantFolder}/{$variantFilename}";
+            $variantPath     = "{$variantFolder}/{$variantFilename}";
 
             try {
-                $image = method_exists($this->manager, 'decodePath')
-                    ? $this->manager->decodePath($file->getRealPath())
-                    : $this->manager->read($file->getRealPath());
+                $image = clone $sourceImage;
 
                 if (($preset['fit'] ?? 'scale_down') === 'cover' && ! empty($preset['height'])) {
                     $image->cover((int) $preset['width'], (int) $preset['height']);
                 } else {
                     $image->scaleDown(
-                        width: isset($preset['width']) ? (int) $preset['width'] : null,
+                        width:  isset($preset['width'])  ? (int) $preset['width']  : null,
                         height: isset($preset['height']) ? (int) $preset['height'] : null,
                     );
                 }
@@ -314,7 +389,7 @@ final class ImageStorageService
                     'file'   => $filename,
                     'error'  => $e->getMessage(),
                 ]);
-                // Intentionally continues - a failed variant must never abort the upload.
+                // Intentionally continues — a failed variant must never abort the upload.
             }
         }
 
@@ -371,8 +446,16 @@ final class ImageStorageService
 
     private function assertPixelLimit(UploadedFile $file): void
     {
-        $maxPixels  = (int) config('media.max_pixel_count', 25_000_000);
-        $dimensions = @getimagesize($file->getRealPath());
+        $maxPixels = (int) config('media.max_pixel_count', 25_000_000);
+        $realPath  = $file->getRealPath();
+
+        if ($realPath === false || ! is_readable($realPath)) {
+            throw ImageStorageException::invalidContent('Uploaded file is not readable.');
+        }
+
+        // getimagesize() reads only the image header — no full file load into memory.
+        // Suppress the warning with @ and check the return value instead.
+        $dimensions = @getimagesize($realPath);
 
         if ($dimensions === false) {
             throw ImageStorageException::invalidContent('Unable to determine image dimensions.');
@@ -384,7 +467,9 @@ final class ImageStorageService
             throw ImageStorageException::invalidContent(
                 sprintf(
                     'Image resolution (%dx%d) exceeds the maximum allowed pixel count of %d.',
-                    $w, $h, $maxPixels
+                    $w,
+                    $h,
+                    $maxPixels,
                 )
             );
         }
@@ -395,7 +480,7 @@ final class ImageStorageService
         $mime = (string) $file->getMimeType();
 
         if (! array_key_exists($mime, self::MAGIC_BYTES)) {
-            return; // Unknown type – MIME validation already passed, nothing more to check.
+            return; // Unknown type — MIME validation already passed, nothing more to check.
         }
 
         $handle = fopen($file->getRealPath(), 'rb');
@@ -411,13 +496,14 @@ final class ImageStorageService
             throw ImageStorageException::invalidContent('Could not read file header bytes.');
         }
 
-        // WebP needs a two-part check: RIFF....WEBP
+        // WebP needs a two-part check: RIFF????WEBP
         if ($mime === 'image/webp') {
             if (! (str_starts_with($header, 'RIFF') && substr($header, 8, 4) === 'WEBP')) {
                 throw ImageStorageException::invalidContent(
                     'File content does not match declared MIME type "image/webp".'
                 );
             }
+
             return;
         }
 
@@ -475,10 +561,19 @@ final class ImageStorageService
         return empty($resolved) ? $configured : $resolved;
     }
 
+    /**
+     * Normalise a folder string and guard against path-traversal in all known forms.
+     */
     private function sanitizeFolder(string $folder): string
     {
-        if (str_contains($folder, '..')) {
-            throw ImageStorageException::invalidContent('Folder path contains a path-traversal sequence.');
+        $lower = strtolower($folder);
+
+        foreach (self::FORBIDDEN_FOLDER_PATTERNS as $pattern) {
+            if (str_contains($lower, $pattern)) {
+                throw ImageStorageException::invalidContent(
+                    'Folder path contains a forbidden sequence: "' . $pattern . '".'
+                );
+            }
         }
 
         return trim((string) preg_replace('#/+#', '/', $folder), '/');
@@ -514,8 +609,16 @@ final class ImageStorageService
     private function cleanupPaths(array $paths, string $disk): void
     {
         foreach ($paths as $path) {
-            if ($path && Storage::disk($disk)->exists($path)) {
-                Storage::disk($disk)->delete($path);
+            if ($path === null || $path === '') {
+                continue;
+            }
+
+            try {
+                if (Storage::disk($disk)->exists($path)) {
+                    Storage::disk($disk)->delete($path);
+                }
+            } catch (Throwable) {
+                // Best-effort — ignore individual cleanup failures.
             }
         }
     }

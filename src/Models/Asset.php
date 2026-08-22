@@ -54,23 +54,6 @@ class Asset extends Model
 {
     use HasFactory, HasUuids;
 
-    protected $fillable = [
-        'uuid',
-        'disk',
-        'path',
-        'original_name',
-        'mime_type',
-        'size',
-        'width',
-        'height',
-        'original_path',
-        'variants',
-        'type',
-        'assetable_type',
-        'assetable_id',
-        'uploaded_by',
-    ];
-
     /**
      * Get the columns that should receive a unique identifier.
      *
@@ -79,6 +62,24 @@ class Asset extends Model
     public function uniqueIds(): array
     {
         return ['uuid'];
+    }
+
+    /**
+     * ⚠️  IMPORTANT — HasUuids changes how find() behaves.
+     *
+     * Because this model uses HasUuids, Eloquent's static `find()` method searches
+     * the `uuid` column, NOT the auto-increment `id` column.
+     *
+     *   Asset::find('some-uuid-string')   ✅ Works — finds by UUID
+     *   Asset::find(42)                   ❌ Wrong  — searches UUID column for "42", returns null
+     *
+     * To find by numeric primary key use:
+     *   Asset::findByPk(42)
+     *   Asset::where('id', 42)->firstOrFail()
+     */
+    public static function findByPk(int $id): ?static
+    {
+        return static::query()->where('id', $id)->first();
     }
 
     /**
@@ -128,9 +129,13 @@ class Asset extends Model
             : $this->url;
     }
 
+    /**
+     * @return array<string, string|null>
+     */
     public function allVariantUrls(): array
     {
         $urls = [];
+
         foreach (array_keys((array) $this->variants) as $key) {
             $urls[$key] = $this->variantUrl($key);
         }

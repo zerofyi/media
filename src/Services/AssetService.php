@@ -33,8 +33,17 @@ final class AssetService
      * physical files written during this call (master, variants, original) are
      * purged before the exception is re-thrown.
      *
-     * @param  array<string, mixed> $attributes  Extra columns (type, uploaded_by, assetable_*, …)
-     * @param  bool|array<string>   $variants
+     * @param  array<string, mixed>  $attributes   Extra columns to merge into the record
+     *                                             (type, uploaded_by, assetable_type/id, …)
+     * @param  bool|array<string>    $variants      false = none | true = default_variants | array = named presets
+     * @param  bool                  $convertToWebp Re-encode JPEG/PNG/BMP to WebP (default: true)
+     * @param  bool                  $preserveIfWebp Copy native WebP without re-encoding (default: true)
+     * @param  bool                  $keepOriginal  Store an untouched copy under Originals/ (default: false)
+     * @param  int|null              $quality       WebP quality 1–100; falls back to config
+     * @param  int|null              $maxSizeKb     Per-call size ceiling override (KB)
+     * @param  string|null           $disk          Override configured storage disk
+     * @param  array<string>|null    $allowedTypes  Restrict accepted MIME types for this call
+     *
      * @throws \Zerofyi\Media\Exceptions\ImageStorageException
      * @throws Throwable
      */
@@ -70,7 +79,8 @@ final class AssetService
             return DB::transaction(function () use ($result, $attributes): Model {
                 $modelClass = $this->getModelClass();
 
-                return $modelClass::create(array_merge($attributes, [
+                /** @var Model $record */
+                $record = $modelClass::create(array_merge($attributes, [
                     'uuid'          => $result->uuid,
                     'disk'          => $result->disk,
                     'path'          => $result->path,
@@ -82,8 +92,11 @@ final class AssetService
                     'original_path' => $result->originalPath,
                     'variants'      => $result->variants,
                 ]));
+
+                return $record;
             });
         } catch (Throwable $e) {
+            // DB failed — purge every physical file so nothing is orphaned.
             $this->storageService->delete(
                 path:         $result->path,
                 disk:         $result->disk,
@@ -99,13 +112,14 @@ final class AssetService
      * Replace an existing Asset with a newly uploaded file.
      *
      * Sequence:
-     *   1. Write new physical files.
-     *   2. Update the DB record (UUID is intentionally preserved – it is the record's identity).
+     *   1. Write new physical files to disk.
+     *   2. Update the DB record (UUID is intentionally preserved — it is the record's stable identity).
      *   3. On DB failure → purge newly uploaded files and re-throw.
      *   4. On DB success → purge old master, variants, and original from disk.
      *
-     * @param  array<string, mixed> $attributes
-     * @param  bool|array<string>   $variants
+     * @param  array<string, mixed>  $attributes
+     * @param  bool|array<string>    $variants
+     *
      * @throws \Zerofyi\Media\Exceptions\ImageStorageException
      * @throws Throwable
      */
@@ -145,9 +159,8 @@ final class AssetService
             allowedTypes:   $allowedTypes,
         );
 
-        // 2. Update DB record. Note: the UUID is NOT changed – it is the stable identity
-        //    of this record. The new UUID embedded in the filename is purely for uniqueness
-        //    on disk and is not exposed as the model's identifier.
+        // 2. Update DB record.
+        //    The UUID is NOT changed — it is the stable identity of this record.
         try {
             DB::transaction(function () use ($asset, $result, $attributes): void {
                 $asset->update(array_merge($attributes, [
@@ -174,7 +187,7 @@ final class AssetService
             throw $e;
         }
 
-        // 3. DB succeeded → purge the OLD files using the captured references.
+        // 3. DB succeeded → purge the OLD files using the pre-captured references.
         $this->storageService->delete(
             path:         $oldPath,
             disk:         $oldDisk,

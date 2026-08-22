@@ -40,8 +40,12 @@ trait HasAssets
      * Upload an image and automatically attach it to this model.
      *
      * @param  bool|array<string>  $variants
-     * @param  int|null            $uploadedBy  Defaults to the authenticated user's ID.
-     *                                          Pass an explicit value for CLI, queue, or API contexts.
+     * @param  int|null            $uploadedBy  ID of the user performing the upload.
+     *                                          In HTTP context this defaults to auth()->id().
+     *                                          ⚠️  Always pass this explicitly in queued jobs,
+     *                                          Artisan commands, and API contexts where the
+     *                                          auth guard is not active — auth()->id() returns
+     *                                          null there and will silently store null in the DB.
      */
     public function uploadAsset(
         UploadedFile $file,
@@ -52,6 +56,8 @@ trait HasAssets
         bool $keepOriginal = false,
         ?int $uploadedBy = null,
     ): Model {
+        $resolvedUploadedBy = $uploadedBy ?? (auth()->check() ? auth()->id() : null);
+
         return app(AssetService::class)->store(
             file:        $file,
             slug:        $slug,
@@ -60,7 +66,7 @@ trait HasAssets
                 'type'           => $type,
                 'assetable_type' => $this->getMorphClass(),
                 'assetable_id'   => $this->getKey(),
-                'uploaded_by'    => $uploadedBy ?? auth()->id(),
+                'uploaded_by'    => $resolvedUploadedBy,
             ],
             variants:    $variants,
             keepOriginal: $keepOriginal,
@@ -71,7 +77,7 @@ trait HasAssets
      * Replace the most recent asset attached to this model.
      *
      * @param  bool|array<string>  $variants
-     * @param  int|null            $uploadedBy
+     * @param  int|null            $uploadedBy  See uploadAsset() — same queue safety note applies.
      */
     public function replaceAsset(
         Model $asset,
@@ -83,6 +89,8 @@ trait HasAssets
         bool $keepOriginal = false,
         ?int $uploadedBy = null,
     ): Model {
+        $resolvedUploadedBy = $uploadedBy ?? (auth()->check() ? auth()->id() : null);
+
         return app(AssetService::class)->replace(
             asset:       $asset,
             file:        $file,
@@ -90,7 +98,7 @@ trait HasAssets
             folder:      $folder,
             attributes:  [
                 'type'        => $type,
-                'uploaded_by' => $uploadedBy ?? auth()->id(),
+                'uploaded_by' => $resolvedUploadedBy,
             ],
             variants:    $variants,
             keepOriginal: $keepOriginal,
