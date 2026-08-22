@@ -9,6 +9,8 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Intervention\Image\Drivers\Gd\Driver as GdDriver;
+use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Encoders\AutoEncoder;
 use Intervention\Image\Encoders\WebpEncoder;
@@ -46,10 +48,11 @@ final class ImageStorageService
     public function __construct()
     {
         // Prefer Imagick for better format support and colour accuracy.
-        $this->manager = extension_loaded('imagick')
-            ? ImageManager::imagick()
-            : ImageManager::gd();
+        $driver = extension_loaded('imagick')
+            ? new ImagickDriver()
+            : new GdDriver();
 
+        $this->manager = new ImageManager($driver);
         $this->svgSanitizer = new SvgSanitizer();
     }
 
