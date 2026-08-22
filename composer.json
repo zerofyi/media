@@ -1,0 +1,53 @@
+{
+    "name": "zerofyi/media",
+    "description": "Production-grade Laravel media suite: zero-orphan storage lifecycle, automated WebP conversion, responsive variants, SVG sanitization, and atomic Eloquent orchestration.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel",
+        "media",
+        "image",
+        "storage",
+        "webp",
+        "upload",
+        "variants"
+    ],
+    "authors": [
+        {
+            "name": "zerofyi",
+            "homepage": "https://github.com/zerofyi"
+        }
+    ],
+    "require": {
+        "php": "^8.2|^8.3|^8.4|^8.5",
+        "illuminate/contracts": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/support": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/database": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/filesystem": "^10.0|^11.0|^12.0|^13.0",
+        "intervention/image": "^4.2",
+        "enshrined/svg-sanitize": "^0.22.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0|^9.0|^10.0|^11.0",
+        "phpunit/phpunit": "^10.0|^11.0|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Zerofyi\\Media\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Zerofyi\\Media\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Zerofyi\\Media\\MediaServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
