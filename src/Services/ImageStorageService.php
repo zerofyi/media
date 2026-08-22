@@ -119,11 +119,15 @@ final class ImageStorageService
         $height = null;
 
         try {
-            $image  = $this->manager->read($file->getRealPath());
+            $image = method_exists($this->manager, 'decodePath')
+                ? $this->manager->decodePath($file->getRealPath())
+                : $this->manager->read($file->getRealPath());
+
             $width  = $image->width();
             $height = $image->height();
 
             if ($preserveIfWebp && $mime === 'image/webp') {
+                // Copy raw bytes - no re-encoding, no generational quality loss.
                 Storage::disk($disk)->put($path, (string) file_get_contents($file->getRealPath()));
             } elseif ($convertToWebp) {
                 Storage::disk($disk)->put($path, (string) $image->encode(new WebpEncoder(quality: $quality)));
@@ -287,7 +291,9 @@ final class ImageStorageService
             $variantPath    = "{$variantFolder}/{$variantFilename}";
 
             try {
-                $image = $this->manager->read($file->getRealPath());
+                $image = method_exists($this->manager, 'decodePath')
+                    ? $this->manager->decodePath($file->getRealPath())
+                    : $this->manager->read($file->getRealPath());
 
                 if (($preset['fit'] ?? 'scale_down') === 'cover' && ! empty($preset['height'])) {
                     $image->cover((int) $preset['width'], (int) $preset['height']);
@@ -308,7 +314,7 @@ final class ImageStorageService
                     'file'   => $filename,
                     'error'  => $e->getMessage(),
                 ]);
-                // Intentionally continues – a failed variant must never abort the upload.
+                // Intentionally continues - a failed variant must never abort the upload.
             }
         }
 
