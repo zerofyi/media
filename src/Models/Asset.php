@@ -55,6 +55,29 @@ class Asset extends Model
     use HasFactory, HasUuids;
 
     /**
+     * Using $fillable alongside #[Fillable] ensures backward compatibility
+     * for older Laravel versions and enables property inheritance for child models.
+     *
+     * @var array<int, string>
+     */
+    protected $fillable = [
+        'uuid',
+        'disk',
+        'path',
+        'original_name',
+        'mime_type',
+        'size',
+        'width',
+        'height',
+        'original_path',
+        'variants',
+        'type',
+        'assetable_type',
+        'assetable_id',
+        'uploaded_by',
+    ];
+
+    /**
      * Get the columns that should receive a unique identifier.
      *
      * @return array<int, string>
@@ -65,17 +88,15 @@ class Asset extends Model
     }
 
     /**
-     * ⚠️  IMPORTANT — HasUuids changes how find() behaves.
+     * ⚠️  IMPORTANT — HasUuids does NOT override find().
      *
-     * Because this model uses HasUuids, Eloquent's static `find()` method searches
-     * the `uuid` column, NOT the auto-increment `id` column.
+     * HasUuids only overrides resolveRouteBinding() (for route model binding).
+     * Eloquent's find() ALWAYS searches the primary key (id), regardless of HasUuids.
      *
-     *   Asset::find('some-uuid-string')   ✅ Works — finds by UUID
-     *   Asset::find(42)                   ❌ Wrong  — searches UUID column for "42", returns null
-     *
-     * To find by numeric primary key use:
-     *   Asset::findByPk(42)
-     *   Asset::where('id', 42)->firstOrFail()
+     *   Asset::find(42)                         ✅ Finds by numeric PK
+     *   Asset::find('some-uuid-string')         ❌ Searches id for a string — returns null
+     *   Asset::where('uuid', $uuid)->first()    ✅ Correct UUID lookup
+     *   Asset::findByPk(42)                     ✅ Explicit PK lookup (self-documenting)
      */
     public static function findByPk(int $id): ?static
     {
