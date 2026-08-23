@@ -19,17 +19,17 @@
         }
     ],
     "require": {
-        "php": "^8.2|^8.3|^8.4",
-        "illuminate/contracts": "^10.0|^11.0|^12.0|^13.0",
-        "illuminate/support": "^10.0|^11.0|^12.0|^13.0",
-        "illuminate/database": "^10.0|^11.0|^12.0|^13.0",
-        "illuminate/filesystem": "^10.0|^11.0|^12.0|^13.0",
+        "php": "^8.2|^8.3|^8.4|^8.5",
+        "illuminate/contracts": "^12.0|^13.0",
+        "illuminate/support": "^12.0|^13.0",
+        "illuminate/database": "^12.0|^13.0",
+        "illuminate/filesystem": "^12.0|^13.0",
         "intervention/image": "^4.2",
         "enshrined/svg-sanitize": "^0.22.0"
     },
     "require-dev": {
-        "orchestra/testbench": "^8.0|^9.0|^10.0|^11.0",
-        "phpunit/phpunit": "^10.0|^11.0|^12.0|^13.0"
+        "orchestra/testbench": "^10.0|^11.0",
+        "phpunit/phpunit": "^11.0|^12.0"
     },
     "autoload": {
         "psr-4": {
@@ -52,9 +52,9 @@
         }
     },
     "scripts": {
-        "test": "vendor/bin/phpunit",
-        "test:unit": "vendor/bin/phpunit --testsuite Unit",
-        "test:feature": "vendor/bin/phpunit --testsuite Feature",
+        "test":          "vendor/bin/phpunit",
+        "test:unit":     "vendor/bin/phpunit --testsuite Unit",
+        "test:feature":  "vendor/bin/phpunit --testsuite Feature",
         "test:coverage": "vendor/bin/phpunit --coverage-text"
     },
     "support": {

@@ -4,6 +4,7 @@
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/zerofyi/media.svg?style=flat-square)](https://packagist.org/packages/zerofyi/media)
 [![Total Downloads](https://img.shields.io/packagist/dt/zerofyi/media.svg?style=flat-square)](https://packagist.org/packages/zerofyi/media)
+[![PHP Version](https://img.shields.io/packagist/php-v/zerofyi/media?style=flat-square)](https://packagist.org/packages/zerofyi/media)
 [![License](https://img.shields.io/packagist/l/zerofyi/media.svg?style=flat-square)](https://packagist.org/packages/zerofyi/media)
 
 ---
@@ -60,11 +61,16 @@
 
 | Dependency | Version |
 |---|---|
-| PHP | `^8.2 \| ^8.3 \| ^8.4` |
-| Laravel | `^10 \| ^11 \| ^12` |
+| PHP | `^8.2 \| ^8.3 \| ^8.4 \| ^8.5` |
+| Laravel | `^12.0 \| ^13.0` |
 | `intervention/image` | `^4.2` |
 | `enshrined/svg-sanitize` | `^0.22` |
 | GD **or** Imagick PHP extension | Either (Imagick preferred) |
+
+> **Laravel 10 / 11 not supported.** This package uses the `#[Fillable]` attribute
+> (`Illuminate\Database\Eloquent\Attributes\Fillable`) which was introduced in Laravel 12.
+> If you are on an older version, replace the attribute with a `$fillable` array in the
+> published `Asset` model stub.
 
 ---
 
@@ -311,25 +317,21 @@ public function store(
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `$file` | `UploadedFile` | ✅ Yes | — | The uploaded file from `$request->file('...')` |
-| `$slug` | `string` | ✅ Yes | — | Used as a human-readable prefix in the output filename. Slugified automatically (e.g. `"My Product"` → `my-product`). Pass `''` to get an `img_` prefix. |
-| `$folder` | `string` | ✅ Yes | — | Relative folder path within the disk (e.g. `'products'`, `'users/avatars'`). Nested folders are created automatically. Must not contain `..`. |
+| `$slug` | `string` | ✅ Yes | — | Used as a human-readable prefix in the output filename. Slugified automatically. Pass `''` to get an `img_` prefix. |
+| `$folder` | `string` | ✅ Yes | — | Relative folder path within the disk (e.g. `'products'`, `'users/avatars'`). Must not contain `..`. |
 | `$attributes` | `array` | ❌ No | `[]` | Extra columns to merge into the asset record. Common keys: `type`, `uploaded_by`, `assetable_type`, `assetable_id`. |
 | `$variants` | `bool\|array` | ❌ No | `false` | `false` = no variants. `true` = generate `default_variants` from config. `['thumb', 'lg']` = generate only those named presets. |
 | `$convertToWebp` | `bool` | ❌ No | `true` | Convert JPEG, PNG, and BMP to WebP. Set to `false` to keep the original format. |
-| `$preserveIfWebp` | `bool` | ❌ No | `true` | When the uploaded file is already WebP, copy raw bytes without re-encoding (prevents generational quality loss). Only applies when `$convertToWebp` is `true`. |
-| `$keepOriginal` | `bool` | ❌ No | `false` | Store an untouched copy of the source file under `Originals/{folder}/` on the same disk. The path is saved in `assets.original_path`. |
+| `$preserveIfWebp` | `bool` | ❌ No | `true` | When the uploaded file is already WebP, copy raw bytes without re-encoding. Only applies when `$convertToWebp` is `true`. |
+| `$keepOriginal` | `bool` | ❌ No | `false` | Store an untouched copy of the source file under `Originals/{folder}/`. The path is saved in `assets.original_path`. |
 | `$quality` | `?int` | ❌ No | `null` | WebP encoding quality (1–100). `null` uses `config('media.default_quality')` (default 85). |
 | `$maxSizeKb` | `?int` | ❌ No | `null` | Per-call file size ceiling in KB. `null` uses `config('media.max_size_kb')` (default 5120). |
 | `$disk` | `?string` | ❌ No | `null` | Override the storage disk for this call only. `null` uses `config('media.disk')`. |
-| `$allowedTypes` | `?array` | ❌ No | `null` | Restrict accepted MIME types for this call. Must be a subset of `config('media.allowed_mime')`. `null` uses the full config list. |
-
-#### Return value
-
-Returns the newly created `Model` (your configured asset model class). All columns are populated and all URL accessors are immediately available.
+| `$allowedTypes` | `?array` | ❌ No | `null` | Restrict accepted MIME types for this call. Must be a subset of `config('media.allowed_mime')`. |
 
 #### Examples
 
-**Minimal — just store the image:**
+**Minimal:**
 ```php
 $asset = app(AssetService::class)->store(
     file:   $request->file('photo'),
@@ -337,11 +339,9 @@ $asset = app(AssetService::class)->store(
     folder: 'products',
 );
 
-echo $asset->url;          // Public URL of the WebP master
-echo $asset->mime_type;    // 'image/webp'
-echo $asset->size;         // bytes
-echo $asset->width;        // pixels
-echo $asset->height;       // pixels
+echo $asset->url;        // Public URL of the WebP master
+echo $asset->mime_type;  // 'image/webp'
+echo $asset->width;      // pixels
 ```
 
 **With default variants:**
@@ -350,11 +350,10 @@ $asset = app(AssetService::class)->store(
     file:     $request->file('photo'),
     slug:     'product-hero',
     folder:   'products',
-    variants: true,   // generates thumb, sm, md (from default_variants config)
+    variants: true,  // generates thumb, sm, md
 );
 
 echo $asset->variantUrl('thumb');  // 200×200 cover-crop WebP
-echo $asset->variantUrl('sm');     // 480px wide WebP
 echo $asset->variantUrl('md');     // 768px wide WebP
 ```
 
@@ -364,7 +363,7 @@ $asset = app(AssetService::class)->store(
     file:     $request->file('photo'),
     slug:     'banner',
     folder:   'banners',
-    variants: ['thumb', 'lg'],  // only these two
+    variants: ['thumb', 'lg'],
 );
 ```
 
@@ -388,22 +387,20 @@ $asset = app(AssetService::class)->store(
     folder:        'products',
     convertToWebp: false,
 );
-
-echo $asset->mime_type;  // 'image/jpeg' (or original format)
 ```
 
-**Custom quality and size limit:**
+**Custom quality and per-call size limit:**
 ```php
 $asset = app(AssetService::class)->store(
     file:      $request->file('photo'),
     slug:      'avatar',
     folder:    'avatars',
     quality:   90,
-    maxSizeKb: 2048,  // 2 MB limit for this call
+    maxSizeKb: 2048,
 );
 ```
 
-**Store to S3 for this call only:**
+**Store to a different disk for this call:**
 ```php
 $asset = app(AssetService::class)->store(
     file:   $request->file('photo'),
@@ -419,11 +416,11 @@ $asset = app(AssetService::class)->store(
     file:         $request->file('avatar'),
     slug:         'avatar',
     folder:       'avatars',
-    allowedTypes: ['image/jpeg', 'image/png'],  // reject gif, webp, etc.
+    allowedTypes: ['image/jpeg', 'image/png'],
 );
 ```
 
-**Attach to a model and track the uploader:**
+**Attach to a model:**
 ```php
 $asset = app(AssetService::class)->store(
     file:       $request->file('photo'),
@@ -463,26 +460,12 @@ public function replace(
 ): Model
 ```
 
-#### Parameters
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `$asset` | `Model` | ✅ Yes | — | The existing asset record to replace. |
-| `$file` | `UploadedFile` | ✅ Yes | — | The new uploaded file. |
-| `$slug` | `string` | ✅ Yes | — | Slug for the new filename. |
-| `$folder` | `string` | ✅ Yes | — | Target folder for the new files. |
-| All other params | — | ❌ No | Same as `store()` | Identical semantics to `store()`. |
-
 #### Replacement sequence
 
 1. New files are written to disk.
 2. The DB record is updated inside a transaction (UUID preserved).
-3. **If the DB update fails** → new files are purged, exception is re-thrown, old files are untouched.
+3. **If the DB update fails** → new files are purged, exception is re-thrown, old files remain.
 4. **If the DB update succeeds** → old master, variants, and original are purged from disk.
-
-This guarantees that the record always points to valid files and old files are never left orphaned.
-
-#### Example
 
 ```php
 $updated = app(AssetService::class)->replace(
@@ -493,11 +476,7 @@ $updated = app(AssetService::class)->replace(
     variants: true,
 );
 
-// UUID is unchanged
-echo $updated->uuid;  // same as $asset->uuid
-
-// New files are live
-echo $updated->url;
+echo $updated->uuid;  // same as $asset->uuid before replace
 ```
 
 ---
@@ -510,18 +489,15 @@ Delete all physical files associated with an asset, then delete the DB record.
 public function delete(Model $asset): bool
 ```
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `$asset` | `Model` | ✅ Yes | The asset to delete. |
-
-Returns `true` on full success, `false` if any individual file deletion failed (all files are still attempted; a failure in one does not stop the others).
-
-The method reads `$asset->variants` and `$asset->original_path` from the model, so it deletes exactly what was stored — not a config-derived guess.
+Returns `true` on full success. Each file is attempted independently; one missing file never blocks the rest (logs a warning instead).
 
 ```php
-$result = app(AssetService::class)->delete($asset);
-// $result: true = all files removed, false = one or more files could not be deleted
+app(AssetService::class)->delete($asset);
+// or: Media::delete($asset);
+// or: $model->deleteAsset($asset);
 ```
+
+> ⚠️ Never call `$asset->delete()` alone — that removes the DB record but leaves all physical files on disk as orphans.
 
 ---
 
@@ -531,30 +507,18 @@ Returns the fully-qualified class name of the configured asset model.
 
 ```php
 $class = app(AssetService::class)->getModelClass();
-// e.g. 'App\Models\Asset'
+// → 'Zerofyi\Media\Models\Asset'  (or your custom class if configured)
 ```
 
 ---
 
 ## 8. Using the Facade
 
-The `Media` facade proxies every method on `AssetService`. It is registered automatically via package auto-discovery.
-
 ```php
 use Zerofyi\Media\Facades\Media;
 
-// Equivalent to app(AssetService::class)->store(...)
-$asset = Media::store(
-    file:     $request->file('photo'),
-    slug:     'my-photo',
-    folder:   'products',
-    variants: true,
-);
-
-// Replace
-$updated = Media::replace($asset, $request->file('photo'), 'new-photo', 'products');
-
-// Delete
+$asset   = Media::store($file, 'my-photo', 'products', variants: true);
+$updated = Media::replace($asset, $newFile, 'new-photo', 'products');
 Media::delete($asset);
 ```
 
@@ -565,7 +529,6 @@ Media::delete($asset);
 Add `HasAssets` to any Eloquent model to get upload, replace, and delete helpers plus polymorphic relationship methods.
 
 ```php
-// app/Models/Product.php
 use Zerofyi\Media\Traits\HasAssets;
 
 class Product extends Model
@@ -595,12 +558,12 @@ public function uploadAsset(
 | `$file` | `UploadedFile` | ✅ Yes | — | The file to upload. |
 | `$slug` | `string` | ✅ Yes | — | Filename slug prefix. |
 | `$folder` | `string` | ✅ Yes | — | Storage folder. |
-| `$type` | `?string` | ❌ No | `null` | Free-form label stored in `assets.type`. Use this to distinguish `'avatar'`, `'banner'`, `'gallery'`, etc. |
-| `$variants` | `bool\|array` | ❌ No | `false` | Variant generation. Same as `store()`. |
+| `$type` | `?string` | ❌ No | `null` | Free-form label stored in `assets.type`. Use to distinguish `'avatar'`, `'banner'`, `'gallery'`, etc. |
+| `$variants` | `bool\|array` | ❌ No | `false` | Variant generation (same as `store()`). |
 | `$keepOriginal` | `bool` | ❌ No | `false` | Keep untouched original. |
-| `$uploadedBy` | `?int` | ❌ No | `null` | Uploader user ID. `null` falls back to `auth()->id()`. Always pass an explicit value in CLI, queue, or API contexts. |
+| `$uploadedBy` | `?int` | ❌ No | `null` | Uploader user ID. `null` falls back to `auth()->id()` when a session is active. **Always pass explicitly in CLI, queue, or API contexts.** |
 
-The asset is automatically attached to the model (sets `assetable_type` and `assetable_id`).
+The asset is automatically attached (sets `assetable_type` and `assetable_id`).
 
 ```php
 // In a controller
@@ -612,12 +575,12 @@ $product->uploadAsset(
     variants: ['thumb', 'sm'],
 );
 
-// In a seeder or CLI command (no auth session)
+// In a queue job (no auth session)
 $product->uploadAsset(
     file:       $file,
     slug:       $product->slug,
     folder:     'products',
-    uploadedBy: $adminUser->id,
+    uploadedBy: $userId,  // always explicit in queued context
 );
 ```
 
@@ -638,17 +601,7 @@ public function replaceAsset(
 ): Model
 ```
 
-Parameters are identical to `uploadAsset()` plus `$asset` as the first argument. See [7.2](#72-replace) for the replacement sequence.
-
-```php
-$updated = $product->replaceAsset(
-    asset:    $asset,
-    file:     $request->file('image'),
-    slug:     $product->slug . '-v2',
-    folder:   'products',
-    variants: true,
-);
-```
+Parameters are identical to `uploadAsset()` plus `$asset` as the first argument.
 
 ---
 
@@ -656,12 +609,6 @@ $updated = $product->replaceAsset(
 
 ```php
 public function deleteAsset(Model $asset): bool
-```
-
-Deletes all physical files and the DB record. Returns `true` on success.
-
-```php
-$product->deleteAsset($asset);
 ```
 
 ---
@@ -672,22 +619,12 @@ $product->deleteAsset($asset);
 public function assets(): MorphMany
 ```
 
-Returns a `MorphMany` relation — all assets polymorphically attached to this model. You can chain any Eloquent scope on it.
+All assets polymorphically attached to this model.
 
 ```php
-// All assets
 $product->assets;
-
-// Filtered by type
 $product->assets()->where('type', 'gallery')->get();
-
-// Most recent
-$product->assets()->latest()->first();
-
-// Count
 $product->assets()->count();
-
-// Eager load
 Product::with('assets')->get();
 ```
 
@@ -699,13 +636,10 @@ Product::with('assets')->get();
 public function primaryAsset(): MorphOne
 ```
 
-Returns a `MorphOne` relation pointing to the **most recently uploaded** asset (`latestOfMany()`). Use this as a "featured image" or "current avatar" shortcut.
+The most recently uploaded asset (`latestOfMany()`). Use as a "featured image" or "current avatar".
 
 ```php
-// Single asset (or null)
 $product->primaryAsset;
-
-// Eager load
 Product::with('primaryAsset')->get();
 ```
 
@@ -732,8 +666,6 @@ Product::with('primaryAsset')->get();
 | `assetable_type` | `string\|null` | Polymorphic morph type |
 | `assetable_id` | `int\|string\|null` | Polymorphic morph ID |
 | `uploaded_by` | `int\|null` | FK to users.id |
-| `created_at` | `Carbon\|null` | |
-| `updated_at` | `Carbon\|null` | |
 
 ### Computed accessors
 
@@ -749,36 +681,44 @@ Product::with('primaryAsset')->get();
 Returns the public URL for a named variant. Falls back to `$asset->url` if that variant was not generated.
 
 ```php
-$asset->variantUrl('thumb');  // 200×200 cover WebP URL
-$asset->variantUrl('md');     // 768px wide WebP URL
-$asset->variantUrl('xl');     // falls back to master URL (not generated)
+$asset->variantUrl('thumb');  // 200×200 cover WebP
+$asset->variantUrl('xl');     // falls back to master URL (xl not generated)
 ```
 
 #### `allVariantUrls(): array`
-
-Returns an associative array of all generated variant URLs keyed by preset name.
 
 ```php
 $asset->allVariantUrls();
 // ['thumb' => 'https://...', 'sm' => 'https://...', 'md' => 'https://...']
 ```
 
+#### `findByPk(int $id): ?static`
+
+Safe numeric PK lookup. Because `HasUuids` overrides `find()` to search the `uuid` column, `Asset::find(42)` always returns `null`. Use this method instead:
+
+```php
+// ✅ Correct — find by UUID
+Asset::find('550e8400-e29b-41d4-a716-446655440000');
+
+// ✅ Correct — find by numeric PK
+Asset::findByPk(42);
+Asset::where('id', 42)->firstOrFail();
+
+// ❌ Always returns null — HasUuids searches the uuid column
+Asset::find(42);
+```
+
 ### Relationships
 
 #### `assetable(): MorphTo`
 
-The parent model this asset belongs to (e.g. `Product`, `Post`, `User`).
-
 ```php
-$asset->assetable;  // returns the parent model instance
+$asset->assetable;  // Product, Post, User, etc.
 ```
 
 #### `uploader(): BelongsTo`
 
-The user who uploaded the file.
-
 ```php
-$asset->uploader;        // User model or null
 $asset->uploader->name;  // 'John Doe'
 ```
 
@@ -788,9 +728,8 @@ $asset->uploader->name;  // 'John Doe'
 
 ### Defining presets
 
-In `config/media.php`:
-
 ```php
+// config/media.php
 'variants' => [
     'thumb' => ['width' => 200,  'height' => 200,  'fit' => 'cover',      'quality' => 75],
     'sm'    => ['width' => 480,  'height' => null,  'fit' => 'scale_down', 'quality' => 80],
@@ -799,57 +738,39 @@ In `config/media.php`:
 ],
 ```
 
-#### Preset key meanings
-
-| Key | Type | Description |
-|---|---|---|
-| `width` | `int\|null` | Output width in pixels. `null` = unconstrained |
-| `height` | `int\|null` | Output height in pixels. `null` = unconstrained |
-| `fit` | `string` | `'cover'` crops to exact dimensions. `'scale_down'` resizes proportionally, never upscales. |
-| `quality` | `int` | WebP quality for this variant specifically (1–100) |
-
-### Adding a custom preset
+### Adding a custom preset (e.g. OG image)
 
 ```php
-// config/media.php
-'variants' => [
-    // ... existing presets ...
-    'og' => ['width' => 1200, 'height' => 630, 'fit' => 'cover', 'quality' => 90],
-],
+'og' => ['width' => 1200, 'height' => 630, 'fit' => 'cover', 'quality' => 90],
 ```
 
 ```php
-// Generate it
-$asset = Media::store($file, 'post-cover', 'posts', variants: ['og']);
+$asset = Media::store($file, 'post-cover', 'posts', variants: ['og', 'thumb']);
 echo $asset->variantUrl('og');  // 1200×630 cover crop
 ```
 
-### Requesting variants
+### Variant `variants` parameter behaviour
 
 | Value | Behaviour |
 |---|---|
 | `false` (default) | No variants generated |
-| `true` | Generates all keys listed in `config('media.default_variants')` |
-| `['thumb', 'lg']` | Generates only those two presets; others are silently skipped if unknown |
+| `true` | Generates all keys in `config('media.default_variants')` |
+| `['thumb', 'lg']` | Generates only those two presets |
 
 ### Variant failures are non-fatal
 
-If a single variant fails to generate (e.g. memory limit on a very large image), a warning is logged and the upload continues. The master file is always written. The `variants` array on the resulting record will simply omit the failed key.
+If a single variant fails (e.g. memory limit), a warning is logged and the upload continues. The `variants` array on the resulting record simply omits the failed key. The master file is always written.
 
 ---
 
 ## 12. Storage Disks
-
-The package works with any Laravel filesystem disk:
 
 ### Local / public disk (default)
 
 ```php
 // .env
 MEDIA_DISK=public
-
-// Then run:
-// php artisan storage:link
+// Then run: php artisan storage:link
 ```
 
 ### Amazon S3
@@ -872,21 +793,17 @@ MEDIA_DISK=s3
 ### Per-call disk override
 
 ```php
-// Use S3 for this specific upload regardless of config
 $asset = Media::store($file, 'photo', 'products', disk: 's3');
 ```
 
 ### Multi-disk in one application
 
 ```php
-// Avatars on local disk
-$avatar = Media::store($file, 'avatar', 'avatars', disk: 'local');
+$avatar  = Media::store($file, 'avatar', 'avatars',  disk: 'local');
+$product = Media::store($file, 'photo',  'products', disk: 's3');
 
-// Product images on S3
-$product = Media::store($file, 'product', 'products', disk: 's3');
-
-// Each asset record stores its own disk; deletion always uses the stored disk
-Media::delete($avatar);   // reads $avatar->disk = 'local'
+// Each record stores its own disk — deletion always uses the stored disk
+Media::delete($avatar);   // reads $avatar->disk  = 'local'
 Media::delete($product);  // reads $product->disk = 's3'
 ```
 
@@ -894,41 +811,34 @@ Media::delete($product);  // reads $product->disk = 's3'
 
 ## 13. Security Layer Explained
 
-Every upload passes through all of the following checks in order before any file is written:
+Every upload passes through all of the following checks before any file is written:
 
 ### 1. MIME whitelist
-
-The server-detected MIME type (not the client header) must be in `config('media.allowed_mime')`. Client-supplied MIME headers are ignored entirely.
+Server-detected MIME type (not the client header) must be in `config('media.allowed_mime')`.
 
 ### 2. Double-extension attack detection
-
-Filenames like `shell.php.jpg` are checked. If the inner extension (before the final `.jpg`) is in the dangerous list (`php`, `phar`, `asp`, `sh`, `exe`, etc.) the upload is rejected.
+Filenames like `shell.php.jpg` are rejected when the inner extension is in the dangerous list (`php`, `phar`, `asp`, `sh`, `exe`, …).
 
 ### 3. File size check
-
-The raw byte count is compared against `max_size_kb`. Rejection happens before the image library ever touches the file.
+Raw byte count compared against `max_size_kb` before the image library touches the file.
 
 ### 4. Pixel count check (decompression bomb guard)
-
-For raster images, `width × height` is compared against `max_pixel_count`. A 25 MP limit (default) prevents attackers from uploading a tiny-on-disk but massive-in-memory JPEG (a "zip bomb" for image libraries).
+For raster images, `width × height` is compared against `max_pixel_count`. The check uses `getimagesize()` which reads only the image header — not the full file — so memory usage is minimal.
 
 ### 5. Magic-byte verification
-
-The first 12 bytes of the file are read and compared against known signatures for each MIME type. A file with a JPEG content-type but PNG bytes is rejected. WebP uses a two-part check (`RIFF` at byte 0 + `WEBP` at byte 8).
+The first 12 bytes of the file are read and compared against known signatures for each MIME type. A JPEG content-type with PNG bytes is rejected. WebP uses a two-part check (`RIFF` at byte 0 + `WEBP` at byte 8).
 
 ### 6. SVG sanitization
-
-SVG files skip the pixel/magic-byte checks (SVG is XML, not a raster format) but are passed through `enshrined/svg-sanitize`. This strips `<script>` tags, `on*` event handlers, `javascript:` URIs, and `data:` URI payloads before storage.
+SVG files skip the pixel/magic-byte checks (SVG is XML, not raster) but are passed through `enshrined/svg-sanitize`, which strips `<script>` tags, `on*` event handlers, `javascript:` URIs, and `data:` URI payloads.
 
 ### 7. Path-traversal guard
-
-Folder arguments are checked for `..`, `%2e%2e`, `%252e`, and null bytes (`\0`). Any match throws immediately. Output filenames are generated by the package (`Str::slug() + UUID`); no part of the client-supplied filename ever touches the filesystem path.
+Folder arguments are checked for `..`, `%2e%2e`, `%252e`, and null bytes (`\0`). Output filenames are generated by the package (`Str::slug() + UUID`) — no part of the client filename ever reaches the filesystem path.
 
 ---
 
 ## 14. Exception Handling
 
-All validation and storage errors throw `Zerofyi\Media\Exceptions\ImageStorageException`, which extends `RuntimeException`. Each exception carries a typed integer code for programmatic matching.
+All validation and storage errors throw `Zerofyi\Media\Exceptions\ImageStorageException` (extends `RuntimeException`).
 
 ### Exception codes
 
@@ -960,20 +870,6 @@ try {
 }
 ```
 
-### Using Laravel's validation before upload
-
-It is good practice to run Laravel's built-in `file` validation rules before calling the package, so form errors are returned in the standard way:
-
-```php
-$request->validate([
-    'photo' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
-]);
-
-$asset = Media::store($request->file('photo'), 'photo', 'products');
-```
-
-The package validation acts as a second line of defence (it works on the server-detected MIME type, not the client header), but Laravel validation provides a better user-facing error format.
-
 ---
 
 ## 15. Customising the Asset Model
@@ -983,8 +879,6 @@ The package validation acts as a second line of defence (it works on the server-
 ```bash
 php artisan vendor:publish --tag=media-model
 ```
-
-This writes `app/Models/Asset.php` extending the package's base model.
 
 ### Step 2 — Update the config
 
@@ -1003,25 +897,17 @@ use Zerofyi\Media\Models\Asset as BaseAsset;
 
 class Asset extends BaseAsset
 {
-    // Add scopes
     public function scopeGallery($query)
     {
         return $query->where('type', 'gallery');
     }
 
-    public function scopeBanner($query)
-    {
-        return $query->where('type', 'banner');
-    }
-
-    // Add relationships
     public function product()
     {
         return $this->belongsTo(Product::class, 'assetable_id')
                     ->where('assetable_type', (new Product)->getMorphClass());
     }
 
-    // Add computed helpers
     public function isWebp(): bool
     {
         return $this->mime_type === 'image/webp';
@@ -1029,17 +915,13 @@ class Asset extends BaseAsset
 }
 ```
 
-All package methods (`store`, `replace`, `delete`, etc.) will automatically use your `App\Models\Asset` class once the config is updated.
-
 ---
 
 ## 16. Using with Queues
 
-When dispatching upload jobs from queue workers, no auth session is active. Always pass `uploadedBy` explicitly:
+Always pass `uploadedBy` explicitly in queued jobs — there is no active auth session in a worker:
 
 ```php
-// app/Jobs/ProcessProductImage.php
-
 class ProcessProductImage implements ShouldQueue
 {
     public function __construct(
@@ -1055,7 +937,7 @@ class ProcessProductImage implements ShouldQueue
             basename($this->tempPath),
             mime_content_type($this->tempPath),
             null,
-            true, // test mode = skip is_uploaded_file() check
+            true,  // test mode — skips is_uploaded_file() check
         );
 
         $this->product->uploadAsset(
@@ -1064,7 +946,7 @@ class ProcessProductImage implements ShouldQueue
             folder:     'products',
             type:       'gallery',
             variants:   true,
-            uploadedBy: $this->uploadedByUserId,
+            uploadedBy: $this->uploadedByUserId,  // always explicit
         );
     }
 }
@@ -1083,7 +965,6 @@ class ProductController extends Controller
     {
         $product = Product::create($request->validated());
 
-        // Hero — single image, all variants
         if ($request->hasFile('hero')) {
             $product->uploadAsset(
                 file:     $request->file('hero'),
@@ -1094,7 +975,6 @@ class ProductController extends Controller
             );
         }
 
-        // Gallery — multiple images, thumb only
         foreach ($request->file('gallery', []) as $image) {
             $product->uploadAsset(
                 file:     $image,
@@ -1110,54 +990,37 @@ class ProductController extends Controller
 }
 ```
 
-```blade
-{{-- In the view --}}
-<img src="{{ $product->assets()->where('type', 'hero')->first()?->variantUrl('md') }}" alt="Hero">
-
-@foreach($product->assets()->where('type', 'gallery')->get() as $image)
-    <img src="{{ $image->variantUrl('thumb') }}" alt="Gallery">
-@endforeach
-```
-
-### User avatar
+### User avatar with replace
 
 ```php
-class AvatarController extends Controller
+public function update(Request $request): JsonResponse
 {
-    public function update(Request $request): JsonResponse
-    {
-        $request->validate(['avatar' => ['required', 'image', 'max:2048']]);
+    $user = $request->user();
 
-        $user = $request->user();
-
-        if ($existing = $user->primaryAsset) {
-            // Replace the existing avatar, preserving UUID
-            $user->replaceAsset(
-                asset:    $existing,
-                file:     $request->file('avatar'),
-                slug:     'avatar-' . $user->id,
-                folder:   'avatars',
-                type:     'avatar',
-                variants: ['thumb'],
-            );
-        } else {
-            $user->uploadAsset(
-                file:     $request->file('avatar'),
-                slug:     'avatar-' . $user->id,
-                folder:   'avatars',
-                type:     'avatar',
-                variants: ['thumb'],
-            );
-        }
-
-        return response()->json([
-            'avatar_url' => $user->primaryAsset?->variantUrl('thumb'),
-        ]);
+    if ($existing = $user->primaryAsset) {
+        $user->replaceAsset(
+            asset:    $existing,
+            file:     $request->file('avatar'),
+            slug:     'avatar-' . $user->id,
+            folder:   'avatars',
+            type:     'avatar',
+            variants: ['thumb'],
+        );
+    } else {
+        $user->uploadAsset(
+            file:     $request->file('avatar'),
+            slug:     'avatar-' . $user->id,
+            folder:   'avatars',
+            type:     'avatar',
+            variants: ['thumb'],
+        );
     }
+
+    return response()->json(['avatar_url' => $user->primaryAsset?->variantUrl('thumb')]);
 }
 ```
 
-### Delete all assets for a model on model deletion
+### Cascade delete on model deletion
 
 ```php
 // app/Models/Product.php
@@ -1169,48 +1032,30 @@ protected static function booted(): void
 }
 ```
 
-### SVG logo upload (staff only, no variants)
+### SVG-only endpoint
 
 ```php
 $asset = Media::store(
-    file:         $request->file('logo'),
-    slug:         'brand-logo',
-    folder:       'brand',
-    allowedTypes: ['image/svg+xml'],  // only SVG accepted for this endpoint
-    convertToWebp: false,             // SVGs are never rasterized
+    file:          $request->file('logo'),
+    slug:          'brand-logo',
+    folder:        'brand',
+    allowedTypes:  ['image/svg+xml'],
+    convertToWebp: false,
 );
 ```
 
-### Generate an OG image crop
+### OG image crop
 
 ```php
-// Add to config/media.php variants
+// Add to config/media.php
 'og' => ['width' => 1200, 'height' => 630, 'fit' => 'cover', 'quality' => 90],
 
-// Upload with the og preset
-$asset = Media::store(
-    file:     $request->file('cover'),
-    slug:     'post-cover',
-    folder:   'posts',
-    variants: ['og', 'md', 'thumb'],
-);
-
-// In Blade or a meta tag
-<meta property="og:image" content="{{ $asset->variantUrl('og') }}">
+// Upload
+$asset = Media::store($request->file('cover'), 'post-cover', 'posts', variants: ['og', 'md', 'thumb']);
 ```
 
-### Store to S3 with a custom CDN URL
-
-```php
-// config/filesystems.php
-'s3' => [
-    'driver' => 's3',
-    // ...
-    'url'    => 'https://cdn.example.com',
-],
-
-$asset = Media::store($file, 'photo', 'products', disk: 's3');
-echo $asset->url;  // https://cdn.example.com/products/my-photo-<uuid>.webp
+```html
+<meta property="og:image" content="{{ $asset->variantUrl('og') }}">
 ```
 
 ---
@@ -1222,7 +1067,7 @@ Given `folder: 'products'`, `slug: 'my-product'`, UUID `abc-123`, and variants `
 ```
 {disk-root}/
 ├── products/
-│   └── my-product_abc-123.webp          ← master file
+│   └── my-product_abc-123.webp              ← master file
 ├── Variants/
 │   └── products/
 │       ├── thumb/
@@ -1231,7 +1076,7 @@ Given `folder: 'products'`, `slug: 'my-product'`, UUID `abc-123`, and variants `
 │           └── sm_my-product_abc-123.webp
 └── Originals/
     └── products/
-        └── my-product_abc-123.jpg       ← only when keepOriginal: true
+        └── my-product_abc-123.jpg           ← only when keepOriginal: true
 ```
 
 Key rules:
